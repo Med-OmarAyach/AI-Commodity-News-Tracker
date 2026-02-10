@@ -1,0 +1,33 @@
+[
+  {
+    "headline":"CORRECTION: Export Sales to China, Japan, and Unknown Destinations",
+    "date":"2026-01-15",
+    "url":"https:\/\/www.fas.usda.gov\/newsroom\/export-sales-china-japan-and-unknown-destinations-0",
+    "announcement_type":"Correction",
+    "countries":"China, Japan, unknown destinations, unknown",
+    "commodities":"soybeans, corn",
+    "marketing_year":"2025-2026",
+    "has_metric_tons":true,
+    "metric_tons_list":[
+      500302,
+      204000,
+      110000,
+      435000,
+      360000,
+      75000,
+      260000,
+      320302
+    ],
+    "total_metric_tons":2264604,
+    "other_units":{
+
+    },
+    "delivery_info_sentences":[
+      "The initial version included reference to a sale of 500,302 metric tons of corn for delivery to unknown destinations",
+      "The corrected information is as follows: Private exporters reported the following sales activities: 204,000 metric tons of soybeans for delivery to China during the 2025\/2026 marketing year 110,000 metric tons of soybeans for delivery to unknown destinations during the 2025\/2026 marketing year 435,000 metric tons of soybeans received in the reporting period for delivery to unknown destinations",
+      "Of the total, 360,000 metric tons is for delivery during the 2025\/2026 marketing year, and 75,000 metric tons is for delivery during the 2026\/2027 marketing year 260,000 metric tons of corn received in the reporting period for delivery to Japan during the 2025\/2026 marketing year 320,302 metric tons of corn received in the reporting period for delivery to unknown destinations during the 2025\/2026 marketing year"
+    ],
+    "body_length":997,
+    "body_preview":"A correction was issued for this announcement on January 22, 2026. The initial version included reference to a sale of 500,302 metric tons of corn for delivery to unknown destinations. The corrected i..."
+  }
+]
