@@ -7,8 +7,10 @@ import re
 
 from playwright.sync_api import sync_playwright
 
-BASE_URL = "https://www.brownfieldagnews.com/crops-markets/"
-article_limit = 5
+BASE_URL = "https://www.brownfieldagnews.com/crops-markets/"  # Fixed: removed trailing spaces
+article_limit = 4800
+max_pages_to_scrape =600 # Maximum pages to scrape (adjust as needed)
+
 def safe_goto(page, url, retries=3):
     for i in range(retries):
         try:
@@ -16,9 +18,10 @@ def safe_goto(page, url, retries=3):
             page.wait_for_timeout(2000)
             return True
         except Exception as e:
-            print(f"⚠️ Retry {i+1}/{retries} failed for {url}: {e}")
+            print(f"Retry {i+1}/{retries} failed for {url}: {e}")
             time.sleep(5)
     return False
+
 def parse_date(s):
     month = {
         "January": "01", "Jan": "01",
@@ -49,49 +52,81 @@ with sync_playwright() as p:
     browser = p.chromium.launch(headless=False, slow_mo=50)
 
     context = browser.new_context(
-    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    viewport={"width": 1280, "height": 800},
-    locale="en-US",
-    timezone_id="America/Chicago",
-    ignore_https_errors=True
-)
-
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        viewport={"width": 1280, "height": 800},
+        locale="en-US",
+        timezone_id="America/Chicago",
+        ignore_https_errors=True
+    )
 
     page = context.new_page()
     
     print("Navigating to:", BASE_URL)
     
     try:
-        # Increase timeout to 60 seconds and use 'domcontentloaded' instead of 'load'
         page.goto(BASE_URL, wait_until="domcontentloaded", timeout=60000)
         print("Page loaded successfully!")
-        
-        # Wait a bit for any additional content
         page.wait_for_timeout(3000)
         
-        # Get article links
+        # Get total pages from pagination
         html = page.content()
         soup = BeautifulSoup(html, "html.parser")
-        urls = []
-        
-        for div in soup.find_all("div", class_="entry-content cat-container"):
+        total_pages = 1
+        pages_span = soup.find("span", class_="pages")
+        if pages_span:
             try:
-                href = div.find("h2").find("a").get("href")
-                urls.append(href)
-                print(f"Found URL: {href}")
-            except:
-                print("No URL found in a div")
+                # Extract total pages from "Page 1 of 620"
+                total_pages = int(pages_span.get_text().split("of")[-1].strip())
+                print(f"Found {total_pages} total pages")
+            except Exception as e:
+                print(f"Error parsing pagination: {e}")
         
-        print(f"\nTotal URLs found: {len(urls)}")
-        print(urls)
-        # AFTER extracting urls list - ADD THIS:
-        urls = [u.strip() for u in urls if u.strip()]  # CRITICAL: Remove trailing spaces
-
+        # Calculate actual pages to scrape
+        pages_to_scrape = min(total_pages, max_pages_to_scrape)
+        print(f"Will scrape up to {pages_to_scrape} pages")
+        
+        # Collect all article URLs across pages
+        all_urls = []
+        for page_num in range(1, pages_to_scrape + 1):
+            # For page 1 we're already on it, navigate for others
+            if page_num > 1:
+                next_page_url = f"{BASE_URL}page/{page_num}/"
+                print(f"Navigating to page {page_num}: {next_page_url}")
+                if not safe_goto(page, next_page_url):
+                    print(f"Failed to load page {page_num}, skipping")
+                    continue
+                page.wait_for_timeout(2000)
+            
+            # Extract article URLs from current page
+            html = page.content()
+            soup = BeautifulSoup(html, "html.parser")
+            page_urls = []
+            
+            for div in soup.find_all("div", class_="entry-content cat-container"):
+                try:
+                    href = div.find("h2").find("a").get("href", "").strip()
+                    if href:
+                        page_urls.append(href)
+                except Exception as e:
+                    print(f"Error extracting URL from div: {e}")
+            
+            print(f"Found {len(page_urls)} articles on page {page_num}")
+            all_urls.extend(page_urls)
+            
+            # Stop if we've collected enough articles
+            if len(all_urls) >= article_limit:
+                print(f"Collected {len(all_urls)} articles, stopping pagination")
+                break
+        
+        print(f"\nTotal article URLs collected: {len(all_urls)}")
+        print(f"Processing first {article_limit} articles")
+        
+        # Process articles
         data = []
-        for url in urls[:article_limit]:  # Use article_limit properly
-            print(f"\n➡️ Processing: {url}")
+        for i,url in enumerate(all_urls[:article_limit]):
+            print(f"\nProcessing {i} : {url}")
             if not safe_goto(page, url):
-                print(f"❌ Navigation failed for {url}")
+                print(f"Navigation failed for {url}")
                 continue
                 
             try:
@@ -108,53 +143,47 @@ with sync_playwright() as p:
                     "len": 0
                 }
                 
-                # --- Date (with validation) ---
+                # Date extraction
                 if (time_tag := soup.find("time")):
                     try:
                         row["article_date"] = parse_date(time_tag.get_text().strip())
                     except Exception as e:
-                        print(f"⚠️ Date parse error: {e}")
+                        print(f"Date parse error: {e}")
                 
-                # --- Title ---
+                # Title extraction
                 if (title_tag := soup.find("p", class_="post_title")):
                     row["title"] = title_tag.get_text(strip=True)
                 
-                # --- Author ---
+                # Author extraction
                 if (author_tag := soup.find("span", class_="entry-author-name")):
                     row["author"] = author_tag.get_text(strip=True)
                 
-                # --- Categories ---
+                # Categories extraction
                 if (cat_span := soup.find("span", class_="entry-categories")):
                     cats = [a.get_text(strip=True) for a in cat_span.find_all("a")]
                     row["categories"] = "|".join(cats)
                 
-                # --- TAGS FIX: Use find_all + last element ---
+                # Tags extraction
                 tag_divs = soup.find_all("div", class_="pull-right")
                 if tag_divs:
-                    tag_container = tag_divs[-1]  # Get LAST matching div
-                    tags = [a.get_text(strip=True) for a in tag_container.find_all("a")[1:]]  # Skip "Tags:" label
+                    tag_container = tag_divs[-1]
+                    tags = [a.get_text(strip=True) for a in tag_container.find_all("a")[1:]]
                     row["tags"] = "|".join(tags)
                 
-                # --- CORRECT BODY EXTRACTION FOR CLASSLESS <p> TAGS ---
-                body_div = soup.find("div", class_="singleimg")  # FIXED: single underscore
+                # Body extraction for classless <p> tags
+                body_div = soup.find("div", class_="singleimg")
                 if body_div:
                     body_parts = []
                     current = body_div
-                    
-                    # Traverse ALL following siblings until next div
                     while True:
                         current = current.next_sibling
                         if current is None or current.name == "div":
                             break
-                            
-                        # ONLY collect classless <p> tags
                         if current.name == "p" and not current.has_attr("class"):
                             body_parts.append(current.get_text(strip=True))
-                    
                     row["body"] = "\n\n".join(body_parts)
                     row["len"] = len(row["body"])
                 else:
-                    # Fallback: try main content container
                     content_div = soup.find("div", class_="entry-content")
                     if content_div:
                         row["body"] = content_div.get_text(strip=True)
@@ -162,30 +191,30 @@ with sync_playwright() as p:
                     else:
                         row["body"] = ""
                         row["len"] = 0
-                
+                row["Source"]="Brownfield"
                 data.append(row)
-                print(f"✅ Parsed: {row['title'][:50]}...")
+                print(f"Parsed: {row['title'][:50]}...")
                 
             except Exception as e:
-                print(f"❌ PARSE ERROR for {url}: {type(e).__name__}: {str(e)[:100]}")
+                print(f"PARSE ERROR for {url}: {type(e).__name__}: {str(e)[:100]}")
                 import traceback
                 traceback.print_exc()
-                continue  # Skip to next article
+                continue
 
-
-
-        
-        
+        # Save results
+        if data:
+            df = pd.DataFrame(data)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            filename = f"brownfield_articles_{timestamp}.csv"
+            df.to_csv(filename, index=False, encoding='utf-8-sig')
+            print(f"\nScraped {len(data)} articles successfully!")
+            print(df[["scraped_at", "title", "len"]].head())
+        else:
+            print("No articles were successfully parsed")
+            
     except Exception as e:
         print(f"Error loading page: {e}")
     
     finally:
         browser.close()
         print("Browser closed")
-    if data:
-        df = pd.DataFrame(data)
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename = f"brownfield_articles_{timestamp}.csv"
-        df.to_csv(filename, index=False, encoding='utf-8')
-        print(f"\n✓ Scraped {len(data)} articles successfully!")
-        print(df[["scraped_at", "title", "len"]].head())
